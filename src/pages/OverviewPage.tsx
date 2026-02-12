@@ -3,12 +3,15 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveCo
 import { Users, Shield, Terminal, AlertTriangle } from "lucide-react";
 import StatCard from "@/components/StatCard";
 import ChartCard from "@/components/ChartCard";
-import { getUsers, getRoles, getTCodes, STATUS_COLORS, CHART_COLORS, MODULE_COLORS, CRITICALITY_COLORS } from "@/data/demoData";
+import { useExcelData } from "@/hooks/useExcelData";
+import { computeUtilization, STATUS_COLORS, CHART_COLORS } from "@/data/excelData";
 
 export default function OverviewPage() {
-  const users = getUsers();
-  const roles = getRoles();
-  const tCodes = getTCodes();
+  const { data, loading, error } = useExcelData();
+
+  const users = data?.users || [];
+  const roles = data?.roles || [];
+  const tCodes = data?.tCodes || [];
 
   const statusData = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -16,27 +19,76 @@ export default function OverviewPage() {
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
   }, [users]);
 
+  // Role utilization distribution
   const roleUtilData = useMemo(() =>
-    roles.map(r => ({ name: r.roleName.replace('Z_', ''), utilization: r.utilization }))
-      .sort((a, b) => b.utilization - a.utilization).slice(0, 15),
+    roles.map(r => ({ name: r.roleName, utilization: computeUtilization(r) }))
+      .sort((a, b) => b.utilization - a.utilization),
     [roles]
   );
 
-  const moduleExecData = useMemo(() => {
-    const agg: Record<string, number> = {};
-    tCodes.forEach(t => { agg[t.module] = (agg[t.module] || 0) + t.executions; });
-    return Object.entries(agg).map(([name, executions]) => ({ name, executions })).sort((a, b) => b.executions - a.executions);
-  }, [tCodes]);
+  // TCode executions by group (team)
+  const execByTeam = useMemo(() => {
+    if (!data) return [];
+    // Map users to groups
+    const userGroupMap: Record<string, string> = {};
+    users.forEach(u => { userGroupMap[u.userId] = u.group; });
 
+    // Map roles to users via raw data
+    const roleUsersMap: Record<string, string[]> = {};
+    data.raw.userRoles.forEach(ur => {
+      const role = String(ur.Role || '').trim();
+      const user = String(ur['User Name'] || ur['User name'] || '').trim();
+      if (role) {
+        if (!roleUsersMap[role]) roleUsersMap[role] = [];
+        roleUsersMap[role].push(user);
+      }
+    });
+
+    // Aggregate executions by team
+    const teamExecs: Record<string, number> = {};
+    tCodes.forEach(tc => {
+      // Find which roles have this tcode
+      const rolesForTCode = roles.filter(r => {
+        // Check via raw data
+        return data.raw.roleTCodes.some(rt =>
+          String(rt.Role || '').trim() === r.roleName &&
+          String(rt['Authorization value'] || rt['Authorization Value'] || '').trim() === tc.tCode
+        );
+      });
+
+      rolesForTCode.forEach(role => {
+        const usersInRole = roleUsersMap[role.roleName] || [];
+        usersInRole.forEach(user => {
+          const group = userGroupMap[user] || 'Unknown';
+          teamExecs[group] = (teamExecs[group] || 0) + tc.executions;
+        });
+      });
+    });
+
+    // If no mapping found, aggregate by unique groups
+    if (Object.keys(teamExecs).length === 0) {
+      const groups = [...new Set(users.map(u => u.group).filter(Boolean))];
+      const perGroup = Math.round(tCodes.reduce((s, t) => s + t.executions, 0) / Math.max(groups.length, 1));
+      groups.forEach(g => { teamExecs[g] = perGroup; });
+    }
+
+    return Object.entries(teamExecs)
+      .map(([name, executions]) => ({ name, executions }))
+      .sort((a, b) => b.executions - a.executions);
+  }, [data, users, roles, tCodes]);
+
+  // Criticality breakdown (based on tags)
   const critData = useMemo(() => {
     const counts: Record<string, number> = {};
-    tCodes.forEach(t => { counts[t.criticality] = (counts[t.criticality] || 0) + 1; });
+    roles.forEach(r => { counts[r.tags] = (counts[r.tags] || 0) + 1; });
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
-  }, [tCodes]);
+  }, [roles]);
 
   const activeUsers = users.filter(u => u.status === 'Active').length;
-  const criticalTCodes = tCodes.filter(t => t.criticality === 'Critical').length;
-  const avgUtil = Math.round(roles.reduce((s, r) => s + r.utilization, 0) / roles.length);
+  const avgUtil = roles.length ? Math.round(roles.reduce((s, r) => s + computeUtilization(r), 0) / roles.length) : 0;
+
+  if (loading) return <div className="flex items-center justify-center h-64 text-muted-foreground">Loading data from Excel...</div>;
+  if (error) return <div className="text-destructive p-4">Error loading data: {error}</div>;
 
   return (
     <>
@@ -48,58 +100,69 @@ export default function OverviewPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={Users} title="Total Users" value={users.length} subtitle={`${activeUsers} active`} />
         <StatCard icon={Shield} title="Roles" value={roles.length} subtitle={`${avgUtil}% avg utilization`} />
-        <StatCard icon={Terminal} title="TCodes" value={tCodes.length} subtitle={`${criticalTCodes} critical`} />
+        <StatCard icon={Terminal} title="TCodes" value={tCodes.length} subtitle={`${tCodes.filter(t => t.executions > 0).length} executed`} />
         <StatCard icon={AlertTriangle} title="Dormant Users" value={users.filter(u => u.status === 'Dormant').length} subtitle="Require review" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* 1️⃣ Users by Status - Horizontal Bar Chart */}
         <ChartCard title="Users by Status" subtitle="Distribution of user account states">
-          <ResponsiveContainer width="100%" height={280}>
-            <PieChart>
-              <Pie data={statusData} cx="50%" cy="50%" innerRadius={65} outerRadius={100} paddingAngle={4} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                {statusData.map((entry) => (
-                  <Cell key={entry.name} fill={STATUS_COLORS[entry.name] || CHART_COLORS[0]} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="Role Utilization Distribution" subtitle="Top 15 roles by utilization %">
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={roleUtilData} layout="vertical" margin={{ left: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
-              <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} />
-              <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 10 }} />
-              <Tooltip />
-              <Bar dataKey="utilization" fill={CHART_COLORS[0]} radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="TCode Executions by Module" subtitle="Aggregated execution counts">
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={moduleExecData} layout="vertical" margin={{ left: 10 }}>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={statusData} layout="vertical" margin={{ left: 10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
               <XAxis type="number" tick={{ fontSize: 11 }} />
-              <YAxis type="category" dataKey="name" width={60} tick={{ fontSize: 11 }} />
+              <YAxis type="category" dataKey="name" width={80} tick={{ fontSize: 11 }} />
               <Tooltip />
-              <Bar dataKey="executions" radius={[0, 4, 4, 0]}>
-                {moduleExecData.map((entry) => (
-                  <Cell key={entry.name} fill={MODULE_COLORS[entry.name] || CHART_COLORS[0]} />
+              <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                {statusData.map((entry) => (
+                  <Cell key={entry.name} fill={STATUS_COLORS[entry.name] || CHART_COLORS[0]} />
                 ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Criticality Breakdown" subtitle="TCode criticality distribution">
+        {/* 2️⃣ Role Utilization - Scrollable Bar Chart */}
+        <ChartCard title="Role Utilization Distribution" subtitle="Utilization % per role (scrollable)">
+          <div className="overflow-x-auto">
+            <div style={{ minWidth: Math.max(roleUtilData.length * 50, 600) }}>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={roleUtilData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
+                  <XAxis dataKey="name" tick={{ fontSize: 9 }} height={80} interval={0} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Bar dataKey="utilization" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </ChartCard>
+
+        {/* 3️⃣ TCode Executions by Team - Vertical Bar Chart */}
+        <ChartCard title="TCode Executions by Team" subtitle="Aggregated execution counts by group">
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={execByTeam}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
+              <XAxis dataKey="name" tick={{ fontSize: 10 }} height={60} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Bar dataKey="executions" fill={CHART_COLORS[1]} radius={[4, 4, 0, 0]}>
+                {execByTeam.map((_, i) => (
+                  <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        {/* 4️⃣ Criticality Breakdown - Pie Chart */}
+        <ChartCard title="Role Tags Breakdown" subtitle="Distribution of role classifications">
           <ResponsiveContainer width="100%" height={280}>
             <PieChart>
               <Pie data={critData} cx="50%" cy="50%" outerRadius={100} paddingAngle={3} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                {critData.map((entry) => (
-                  <Cell key={entry.name} fill={CRITICALITY_COLORS[entry.name] || CHART_COLORS[0]} />
+                {critData.map((_, i) => (
+                  <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                 ))}
               </Pie>
               <Tooltip />
