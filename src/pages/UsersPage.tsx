@@ -1,8 +1,9 @@
 import { useState, useMemo, useCallback } from "react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, PieChart, Pie } from "recharts";
 import ChartCard from "@/components/ChartCard";
 import DataTable from "@/components/DataTable";
-import { getUsers, STATUS_COLORS, CHART_COLORS, type SAPUser } from "@/data/demoData";
+import { useExcelData } from "@/hooks/useExcelData";
+import { STATUS_COLORS, CHART_COLORS, type SAPUser } from "@/data/excelData";
 
 const statusBadge = (status: string) => {
   const cls = status === 'Active' ? 'badge-active' : status === 'Dormant' ? 'badge-dormant' : 'badge-expired';
@@ -11,38 +12,36 @@ const statusBadge = (status: string) => {
 
 const columns = [
   { key: 'userId' as const, label: 'User ID' },
-  { key: 'name' as const, label: 'Name' },
   { key: 'group' as const, label: 'Group' },
+  { key: 'validTo' as const, label: 'Valid To' },
   { key: 'status' as const, label: 'Status', render: (v: unknown) => statusBadge(v as string) },
-  { key: 'executions' as const, label: 'Executions', render: (v: unknown) => (v as number).toLocaleString() },
   { key: 'lastLogon' as const, label: 'Last Logon' },
-  { key: 'tags' as const, label: 'Tags' },
 ];
 
 export default function UsersPage() {
-  const users = getUsers();
-  const [filtered, setFiltered] = useState<SAPUser[]>(users);
+  const { data, loading, error } = useExcelData();
+  const users = data?.users || [];
+  const [filtered, setFiltered] = useState<SAPUser[]>([]);
   const handleFilter = useCallback((f: SAPUser[]) => setFiltered(f), []);
 
-  const execBuckets = useMemo(() => {
-    const buckets = [
-      { range: '0-100', min: 0, max: 100 },
-      { range: '101-500', min: 101, max: 500 },
-      { range: '501-1000', min: 501, max: 1000 },
-      { range: '1001-2500', min: 1001, max: 2500 },
-      { range: '2500+', min: 2501, max: Infinity },
-    ];
-    return buckets.map(b => ({
-      range: b.range,
-      count: filtered.filter(u => u.executions >= b.min && u.executions <= b.max).length,
-    }));
-  }, [filtered]);
+  const displayFiltered = filtered.length > 0 ? filtered : users;
 
+  // User status histogram
+  const statusHist = useMemo(() => {
+    const counts: Record<string, number> = {};
+    displayFiltered.forEach(u => { counts[u.status] = (counts[u.status] || 0) + 1; });
+    return Object.entries(counts).map(([name, value]) => ({ name, value }));
+  }, [displayFiltered]);
+
+  // Group membership pie
   const groupData = useMemo(() => {
     const counts: Record<string, number> = {};
-    filtered.forEach(u => { counts[u.group] = (counts[u.group] || 0) + 1; });
+    displayFiltered.forEach(u => { if (u.group) counts[u.group] = (counts[u.group] || 0) + 1; });
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
-  }, [filtered]);
+  }, [displayFiltered]);
+
+  if (loading) return <div className="flex items-center justify-center h-64 text-muted-foreground">Loading...</div>;
+  if (error) return <div className="text-destructive p-4">Error: {error}</div>;
 
   return (
     <>
@@ -52,14 +51,18 @@ export default function UsersPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ChartCard title="Executions Distribution" subtitle="User execution count histogram">
+        <ChartCard title="User Status Histogram" subtitle="Count of users by status">
           <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={execBuckets}>
+            <BarChart data={statusHist}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
-              <XAxis dataKey="range" tick={{ fontSize: 11 }} />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />
               <Tooltip />
-              <Bar dataKey="count" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                {statusHist.map((entry) => (
+                  <Cell key={entry.name} fill={STATUS_COLORS[entry.name] || CHART_COLORS[0]} />
+                ))}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -78,7 +81,7 @@ export default function UsersPage() {
 
       <div className="chart-card">
         <h3 className="text-sm font-semibold text-foreground mb-4">User Details</h3>
-        <DataTable data={users} columns={columns} searchKeys={['userId', 'name', 'group', 'tags']} onFilter={handleFilter} />
+        <DataTable data={users} columns={columns} searchKeys={['userId', 'group', 'status']} onFilter={handleFilter} />
       </div>
     </>
   );
