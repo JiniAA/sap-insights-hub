@@ -3,6 +3,7 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveCo
 import { Users, Shield, Terminal, AlertTriangle } from "lucide-react";
 import StatCard from "@/components/StatCard";
 import ChartCard from "@/components/ChartCard";
+import Spinner from "@/components/Spinner";
 import { useExcelData } from "@/hooks/useExcelData";
 import { computeUtilization, STATUS_COLORS, CHART_COLORS } from "@/data/excelData";
 
@@ -19,7 +20,7 @@ export default function OverviewPage() {
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
   }, [users]);
 
-  // Role utilization distribution
+  // Role utilization distribution - all roles
   const roleUtilData = useMemo(() =>
     roles.map(r => ({ name: r.roleName, utilization: computeUtilization(r) }))
       .sort((a, b) => b.utilization - a.utilization),
@@ -29,11 +30,9 @@ export default function OverviewPage() {
   // TCode executions by group (team)
   const execByTeam = useMemo(() => {
     if (!data) return [];
-    // Map users to groups
     const userGroupMap: Record<string, string> = {};
     users.forEach(u => { userGroupMap[u.userId] = u.group; });
 
-    // Map roles to users via raw data
     const roleUsersMap: Record<string, string[]> = {};
     data.raw.userRoles.forEach(ur => {
       const role = String(ur.Role || '').trim();
@@ -44,12 +43,9 @@ export default function OverviewPage() {
       }
     });
 
-    // Aggregate executions by team
     const teamExecs: Record<string, number> = {};
     tCodes.forEach(tc => {
-      // Find which roles have this tcode
       const rolesForTCode = roles.filter(r => {
-        // Check via raw data
         return data.raw.roleTCodes.some(rt =>
           String(rt.Role || '').trim() === r.roleName &&
           String(rt['Authorization value'] || rt['Authorization Value'] || '').trim() === tc.tCode
@@ -65,7 +61,6 @@ export default function OverviewPage() {
       });
     });
 
-    // If no mapping found, aggregate by unique groups
     if (Object.keys(teamExecs).length === 0) {
       const groups = [...new Set(users.map(u => u.group).filter(Boolean))];
       const perGroup = Math.round(tCodes.reduce((s, t) => s + t.executions, 0) / Math.max(groups.length, 1));
@@ -77,7 +72,6 @@ export default function OverviewPage() {
       .sort((a, b) => b.executions - a.executions);
   }, [data, users, roles, tCodes]);
 
-  // Criticality breakdown (based on tags)
   const critData = useMemo(() => {
     const counts: Record<string, number> = {};
     roles.forEach(r => { counts[r.tags] = (counts[r.tags] || 0) + 1; });
@@ -87,7 +81,7 @@ export default function OverviewPage() {
   const activeUsers = users.filter(u => u.status === 'Active').length;
   const avgUtil = roles.length ? Math.round(roles.reduce((s, r) => s + computeUtilization(r), 0) / roles.length) : 0;
 
-  if (loading) return <div className="flex items-center justify-center h-64 text-muted-foreground">Loading data from Excel...</div>;
+  if (loading) return <Spinner text="Loading data from Excel..." />;
   if (error) return <div className="text-destructive p-4">Error loading data: {error}</div>;
 
   return (
@@ -105,34 +99,38 @@ export default function OverviewPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* 1️⃣ Users by Status - Horizontal Bar Chart */}
+        {/* 1️⃣ Users by Status - Vertical Bar Chart (scrollable) */}
         <ChartCard title="Users by Status" subtitle="Distribution of user account states">
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={statusData} layout="vertical" margin={{ left: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
-              <XAxis type="number" tick={{ fontSize: 11 }} />
-              <YAxis type="category" dataKey="name" width={80} tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                {statusData.map((entry) => (
-                  <Cell key={entry.name} fill={STATUS_COLORS[entry.name] || CHART_COLORS[0]} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          <div className="overflow-x-auto">
+            <div style={{ minWidth: Math.max(statusData.length * 120, 300) }}>
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={statusData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                    {statusData.map((entry) => (
+                      <Cell key={entry.name} fill={STATUS_COLORS[entry.name] || CHART_COLORS[0]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         </ChartCard>
 
-        {/* 2️⃣ Role Utilization - Scrollable Bar Chart */}
+        {/* 2️⃣ Role Utilization - Horizontal Bar Chart (scrollable) */}
         <ChartCard title="Role Utilization Distribution" subtitle="Utilization % per role (scrollable)">
-          <div className="overflow-x-auto">
-            <div style={{ minWidth: Math.max(roleUtilData.length * 50, 600) }}>
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={roleUtilData}>
+          <div className="overflow-y-auto" style={{ maxHeight: 320 }}>
+            <div style={{ minHeight: Math.max(roleUtilData.length * 28, 300) }}>
+              <ResponsiveContainer width="100%" height={Math.max(roleUtilData.length * 28, 300)}>
+                <BarChart data={roleUtilData} layout="vertical" margin={{ left: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
-                  <XAxis dataKey="name" tick={{ fontSize: 9 }} height={80} interval={0} />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                  <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} />
+                  <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 9 }} interval={0} />
                   <Tooltip />
-                  <Bar dataKey="utilization" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="utilization" fill={CHART_COLORS[0]} radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, PieChart, Pie } from "recharts";
 import ChartCard from "@/components/ChartCard";
 import DataTable from "@/components/DataTable";
+import Spinner from "@/components/Spinner";
 import { useExcelData } from "@/hooks/useExcelData";
 import { STATUS_COLORS, CHART_COLORS, type SAPUser } from "@/data/excelData";
 
@@ -26,21 +27,19 @@ export default function UsersPage() {
 
   const displayFiltered = filtered.length > 0 ? filtered : users;
 
-  // User status histogram
   const statusHist = useMemo(() => {
     const counts: Record<string, number> = {};
     displayFiltered.forEach(u => { counts[u.status] = (counts[u.status] || 0) + 1; });
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
   }, [displayFiltered]);
 
-  // Group membership pie
   const groupData = useMemo(() => {
     const counts: Record<string, number> = {};
     displayFiltered.forEach(u => { if (u.group) counts[u.group] = (counts[u.group] || 0) + 1; });
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
   }, [displayFiltered]);
 
-  if (loading) return <div className="flex items-center justify-center h-64 text-muted-foreground">Loading...</div>;
+  if (loading) return <Spinner text="Loading user data..." />;
   if (error) return <div className="text-destructive p-4">Error: {error}</div>;
 
   return (

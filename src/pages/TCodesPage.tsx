@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import ChartCard from "@/components/ChartCard";
 import DataTable from "@/components/DataTable";
+import Spinner from "@/components/Spinner";
 import { useExcelData } from "@/hooks/useExcelData";
 import { CHART_COLORS, type SAPTCode } from "@/data/excelData";
 
@@ -22,30 +23,25 @@ export default function TCodesPage() {
 
   const displayFiltered = filtered.length > 0 ? filtered : tCodes;
 
-  // Execution details bar chart - all, scrollable
+  // Execution details bar chart - all, scrollable (only excel tcodes)
   const execData = useMemo(() =>
     [...displayFiltered].sort((a, b) => b.executions - a.executions),
     [displayFiltered]
   );
 
-  // Group vs Criticality heatmap (group = user teams, criticality = execution volume buckets)
+  // Group vs Criticality heatmap
   const heatmapData = useMemo(() => {
     if (!data) return [];
     const groups = [...new Set(users.map(u => u.group).filter(Boolean))];
     
-    // Map tcodes to groups via roles and user-role mapping
     const tcodeGroupExecs: Record<string, Record<string, number>> = {};
-    
-    // Simple approach: count executions per group
     groups.forEach(g => {
       tcodeGroupExecs[g] = { High: 0, Medium: 0, Low: 0, None: 0 };
     });
 
-    // Categorize tcodes by execution volume
     tCodes.forEach(tc => {
       const bucket = tc.executions > 100 ? 'High' : tc.executions > 10 ? 'Medium' : tc.executions > 0 ? 'Low' : 'None';
       
-      // Distribute across groups based on user roles
       const tcodeRoles = data.raw.roleTCodes
         .filter(rt => String(rt['Authorization value'] || rt['Authorization Value'] || '').trim() === tc.tCode)
         .map(rt => String(rt.Role || '').trim());
@@ -60,7 +56,6 @@ export default function TCodesPage() {
       
       const uniqueGroups = [...new Set(relatedGroups)];
       if (uniqueGroups.length === 0 && groups.length > 0) {
-        // Assign to first group as fallback
         if (tcodeGroupExecs[groups[0]]) tcodeGroupExecs[groups[0]][bucket]++;
       } else {
         uniqueGroups.forEach(g => {
@@ -75,7 +70,7 @@ export default function TCodesPage() {
     }));
   }, [data, tCodes, users]);
 
-  if (loading) return <div className="flex items-center justify-center h-64 text-muted-foreground">Loading...</div>;
+  if (loading) return <Spinner text="Loading transaction code data..." />;
   if (error) return <div className="text-destructive p-4">Error: {error}</div>;
 
   return (
@@ -86,7 +81,6 @@ export default function TCodesPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Execution details - all, scrollable */}
         <ChartCard title="Execution Details" subtitle="Executions per TCode (scrollable)">
           <div className="overflow-y-auto" style={{ maxHeight: 350 }}>
             <div style={{ minHeight: Math.max(execData.length * 24, 300) }}>
@@ -107,7 +101,6 @@ export default function TCodesPage() {
           </div>
         </ChartCard>
 
-        {/* Group vs Criticality Heatmap */}
         <ChartCard title="Group vs Execution Criticality" subtitle="Stacked bar: TCode execution volume by team">
           <ResponsiveContainer width="100%" height={320}>
             <BarChart data={heatmapData}>
@@ -126,9 +119,7 @@ export default function TCodesPage() {
 
       <div className="chart-card">
         <h3 className="text-sm font-semibold text-foreground mb-4">TCode Details</h3>
-        <div className="overflow-y-auto" style={{ maxHeight: 500 }}>
-          <DataTable data={tCodes} columns={columns} searchKeys={['tCode', 'description']} onFilter={handleFilter} />
-        </div>
+        <DataTable data={tCodes} columns={columns} searchKeys={['tCode', 'description']} onFilter={handleFilter} />
       </div>
     </>
   );
