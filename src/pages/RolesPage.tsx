@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, PieChart, Pie, Legend } from "recharts";
 import ChartCard from "@/components/ChartCard";
 import DataTable from "@/components/DataTable";
@@ -14,33 +14,27 @@ const tagBadge = (tag: string) => {
 export default function RolesPage() {
   const { data, loading, error } = useExcelData();
   const roles = data?.roles || [];
-  const [filtered, setFiltered] = useState<SAPRole[]>([]);
-  const handleFilter = useCallback((f: SAPRole[]) => setFiltered(f), []);
 
-  const displayFiltered = filtered.length > 0 ? filtered : roles;
-
-  // Donut chart - top 15 by utilization
+  // Charts always use full dataset
   const donutData = useMemo(() =>
-    displayFiltered.map(r => ({
+    roles.map(r => ({
       name: r.roleName.length > 20 ? r.roleName.slice(0, 20) + '…' : r.roleName,
       utilization: computeUtilization(r),
     }))
     .sort((a, b) => b.utilization - a.utilization)
     .slice(0, 15),
-    [displayFiltered]
+    [roles]
   );
 
-  // Unused ratio bar chart - all roles, scrollable
   const unusedData = useMemo(() =>
-    displayFiltered.map(r => ({
+    roles.map(r => ({
       name: r.roleName,
       unused: r.tCodes > 0 ? Math.round((r.unused / r.tCodes) * 100) : 0,
       unusedCount: r.unused,
     })).sort((a, b) => b.unused - a.unused),
-    [displayFiltered]
+    [roles]
   );
 
-  // Table data with computed utilization
   const tableData = useMemo(() =>
     roles.map(r => ({ ...r, utilPct: `${computeUtilization(r)}%` })),
     [roles]
@@ -90,7 +84,7 @@ export default function RolesPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Unused Ratio" subtitle="% unused TCodes per role (scrollable) — count shown in tooltip">
+        <ChartCard title="Unused Ratio" subtitle="% unused TCodes per role (scrollable)">
           <div className="overflow-y-auto" style={{ maxHeight: 320 }}>
             <div style={{ minHeight: Math.max(unusedData.length * 28, 300) }}>
               <ResponsiveContainer width="100%" height={Math.max(unusedData.length * 28, 300)}>
@@ -122,7 +116,7 @@ export default function RolesPage() {
 
       <div className="chart-card">
         <h3 className="text-sm font-semibold text-foreground mb-4">Role Details</h3>
-        <DataTable data={tableData} columns={extendedColumns as any} searchKeys={['roleName', 'tags'] as any} onFilter={handleFilter as any} />
+        <DataTable data={tableData} columns={extendedColumns as any} searchKeys={['roleName', 'tags'] as any} />
       </div>
     </>
   );

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import ChartCard from "@/components/ChartCard";
 import DataTable from "@/components/DataTable";
@@ -18,18 +18,13 @@ export default function TCodesPage() {
   const { data, loading, error } = useExcelData();
   const tCodes = data?.tCodes || [];
   const users = data?.users || [];
-  const [filtered, setFiltered] = useState<SAPTCode[]>([]);
-  const handleFilter = useCallback((f: SAPTCode[]) => setFiltered(f), []);
 
-  const displayFiltered = filtered.length > 0 ? filtered : tCodes;
-
-  // Execution details bar chart - all, scrollable (only excel tcodes)
+  // Charts always use full dataset
   const execData = useMemo(() =>
-    [...displayFiltered].sort((a, b) => b.executions - a.executions),
-    [displayFiltered]
+    [...tCodes].sort((a, b) => b.executions - a.executions),
+    [tCodes]
   );
 
-  // Group vs Criticality heatmap
   const heatmapData = useMemo(() => {
     if (!data) return [];
     const groups = [...new Set(users.map(u => u.group).filter(Boolean))];
@@ -119,7 +114,7 @@ export default function TCodesPage() {
 
       <div className="chart-card">
         <h3 className="text-sm font-semibold text-foreground mb-4">TCode Details</h3>
-        <DataTable data={tCodes} columns={columns} searchKeys={['tCode', 'description']} onFilter={handleFilter} />
+        <DataTable data={tCodes} columns={columns} searchKeys={['tCode', 'description']} />
       </div>
     </>
   );

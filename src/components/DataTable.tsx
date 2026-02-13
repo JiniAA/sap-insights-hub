@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { ArrowUpDown, ArrowUp, ArrowDown, Search } from "lucide-react";
 
@@ -13,11 +13,10 @@ interface DataTableProps<T> {
   data: T[];
   columns: Column<T>[];
   searchKeys?: (keyof T)[];
-  onFilter?: (filtered: T[]) => void;
 }
 
 export default function DataTable<T extends object>({
-  data, columns, searchKeys, onFilter
+  data, columns, searchKeys
 }: DataTableProps<T>) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<keyof T | null>(null);
@@ -44,8 +43,6 @@ export default function DataTable<T extends object>({
     }
     return result;
   }, [data, search, searchKeys, sortKey, sortDir]);
-
-  useEffect(() => { onFilter?.(filtered); }, [filtered, onFilter]);
 
   const toggleSort = (key: keyof T) => {
     if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
