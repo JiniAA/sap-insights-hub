@@ -24,6 +24,7 @@ interface RawRoleTCode {
 
 interface RawTransactionLog {
   'Variable Data': string;
+  'Transaction Text': string;
   [key: string]: unknown;
 }
 
@@ -55,7 +56,6 @@ export interface SAPTCode {
 // ── Helpers ──
 function excelDateToJS(v: string | number): Date | null {
   if (typeof v === 'number') {
-    // Excel serial date
     const epoch = new Date(1899, 11, 30);
     return new Date(epoch.getTime() + v * 86400000);
   }
@@ -134,9 +134,13 @@ export async function loadExcelData(url = '/data/Logs_for_Analysis_1.xlsx'): Pro
       status = 'Inactive';
     }
 
+    // N/A team → Admin
+    const rawTeam = String(u.Team || '').trim();
+    const group = (!rawTeam || rawTeam === 'N/A' || rawTeam === 'n/a') ? 'Admin' : rawTeam;
+
     return {
       userId: String(u.User || ''),
-      group: String(u.Team || ''),
+      group,
       validTo: fmt(validToDate),
       status,
       lastLogon: fmt(lastLogonDate),
@@ -144,15 +148,19 @@ export async function loadExcelData(url = '/data/Logs_for_Analysis_1.xlsx'): Pro
   });
 
   // ── Build lookup sets ──
-  // Transaction log tcodes set
+  // Transaction log tcodes set & description map
   const txTCodeSet = new Set<string>();
   const txTCodeCounts: Record<string, number> = {};
+  const txTCodeDescMap: Record<string, string> = {};
   txLogs.forEach(log => {
-    // Try multiple column name variations
     const val = String(log['Variable Data'] || log['variable data'] || log['Variable data'] || log['VARIABLE DATA'] || '').trim();
+    const desc = String(log['Transaction Text'] || log['Transaction text'] || log['transaction text'] || '').trim();
     if (val) {
       txTCodeSet.add(val);
       txTCodeCounts[val] = (txTCodeCounts[val] || 0) + 1;
+      if (desc && !txTCodeDescMap[val]) {
+        txTCodeDescMap[val] = desc;
+      }
     }
   });
 
@@ -213,11 +221,9 @@ export async function loadExcelData(url = '/data/Logs_for_Analysis_1.xlsx'): Pro
     };
   });
 
-  // ── TCODES ──
-  const allTCodes = new Set<string>();
-  Object.values(roleTCodeMap).forEach(set => set.forEach(tc => allTCodes.add(tc)));
-  // Also add from tx logs
-  txTCodeSet.forEach(tc => allTCodes.add(tc));
+  // ── TCODES - only from role_tcode sheet (Authorization value) ──
+  const allTCodesFromExcel = new Set<string>();
+  Object.values(roleTCodeMap).forEach(set => set.forEach(tc => allTCodesFromExcel.add(tc)));
 
   // TCode → roles
   const tcodeRoleMap: Record<string, Set<string>> = {};
@@ -242,9 +248,10 @@ export async function loadExcelData(url = '/data/Logs_for_Analysis_1.xlsx'): Pro
     });
   });
 
-  const tCodes: SAPTCode[] = Array.from(allTCodes).map(tc => ({
+  // Only tcodes from excel (role_tcode sheet), description from Transaction Text
+  const tCodes: SAPTCode[] = Array.from(allTCodesFromExcel).map(tc => ({
     tCode: tc,
-    description: tc, // No description column available, use tcode itself
+    description: txTCodeDescMap[tc] || tc,
     executions: txTCodeCounts[tc] || 0,
     users: tcodeUserMap[tc]?.size || 0,
     roles: tcodeRoleMap[tc]?.size || 0,

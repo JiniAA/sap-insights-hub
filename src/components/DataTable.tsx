@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { ArrowUpDown, ArrowUp, ArrowDown, Search } from "lucide-react";
 
@@ -24,14 +24,20 @@ export default function DataTable<T extends object>({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const filtered = useMemo(() => {
-    let result = data;
+    let result = [...data];
     if (search && searchKeys) {
       const q = search.toLowerCase();
-      result = result.filter(row => searchKeys.some(k => String(row[k]).toLowerCase().includes(q)));
+      result = result.filter(row =>
+        searchKeys.some(k => {
+          const val = (row as Record<string, unknown>)[k as string];
+          return String(val ?? '').toLowerCase().includes(q);
+        })
+      );
     }
     if (sortKey) {
-      result = [...result].sort((a, b) => {
-        const av = a[sortKey], bv = b[sortKey];
+      result.sort((a, b) => {
+        const av = (a as Record<string, unknown>)[sortKey as string];
+        const bv = (b as Record<string, unknown>)[sortKey as string];
         const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv));
         return sortDir === "asc" ? cmp : -cmp;
       });
@@ -39,7 +45,7 @@ export default function DataTable<T extends object>({
     return result;
   }, [data, search, searchKeys, sortKey, sortDir]);
 
-  useMemo(() => { onFilter?.(filtered); }, [filtered, onFilter]);
+  useEffect(() => { onFilter?.(filtered); }, [filtered, onFilter]);
 
   const toggleSort = (key: keyof T) => {
     if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
@@ -61,14 +67,14 @@ export default function DataTable<T extends object>({
         </div>
       )}
       <div className="rounded-lg border overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-auto" style={{ maxHeight: 500 }}>
           <table className="w-full text-sm">
-            <thead>
-              <tr className="data-table-header">
+            <thead className="sticky top-0 z-10">
+              <tr className="data-table-header bg-muted">
                 {columns.map(col => (
                   <th
                     key={String(col.key)}
-                    className={cn("px-4 py-3 text-left", col.sortable !== false && "cursor-pointer select-none hover:text-foreground")}
+                    className={cn("px-4 py-3 text-left bg-muted", col.sortable !== false && "cursor-pointer select-none hover:text-foreground")}
                     onClick={() => col.sortable !== false && toggleSort(col.key)}
                   >
                     <div className="flex items-center gap-1">
@@ -88,7 +94,7 @@ export default function DataTable<T extends object>({
                 <tr key={i} className="border-t hover:bg-muted/30 transition-colors">
                   {columns.map(col => (
                     <td key={String(col.key)} className="px-4 py-2.5 text-foreground">
-                      {col.render ? col.render(row[col.key], row) : String(row[col.key])}
+                      {col.render ? col.render((row as Record<string, unknown>)[col.key as string] as T[keyof T], row) : String((row as Record<string, unknown>)[col.key as string] ?? '')}
                     </td>
                   ))}
                 </tr>
