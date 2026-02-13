@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, PieChart, Pie } from "recharts";
 import ChartCard from "@/components/ChartCard";
 import DataTable from "@/components/DataTable";
@@ -22,22 +22,19 @@ const columns = [
 export default function UsersPage() {
   const { data, loading, error } = useExcelData();
   const users = data?.users || [];
-  const [filtered, setFiltered] = useState<SAPUser[]>([]);
-  const handleFilter = useCallback((f: SAPUser[]) => setFiltered(f), []);
 
-  const displayFiltered = filtered.length > 0 ? filtered : users;
-
+  // Charts always use full dataset
   const statusHist = useMemo(() => {
     const counts: Record<string, number> = {};
-    displayFiltered.forEach(u => { counts[u.status] = (counts[u.status] || 0) + 1; });
+    users.forEach(u => { counts[u.status] = (counts[u.status] || 0) + 1; });
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
-  }, [displayFiltered]);
+  }, [users]);
 
   const groupData = useMemo(() => {
     const counts: Record<string, number> = {};
-    displayFiltered.forEach(u => { if (u.group) counts[u.group] = (counts[u.group] || 0) + 1; });
+    users.forEach(u => { if (u.group) counts[u.group] = (counts[u.group] || 0) + 1; });
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
-  }, [displayFiltered]);
+  }, [users]);
 
   if (loading) return <Spinner text="Loading user data..." />;
   if (error) return <div className="text-destructive p-4">Error: {error}</div>;
@@ -80,7 +77,7 @@ export default function UsersPage() {
 
       <div className="chart-card">
         <h3 className="text-sm font-semibold text-foreground mb-4">User Details</h3>
-        <DataTable data={users} columns={columns} searchKeys={['userId', 'group', 'status']} onFilter={handleFilter} />
+        <DataTable data={users} columns={columns} searchKeys={['userId', 'group', 'status']} />
       </div>
     </>
   );
