@@ -125,6 +125,12 @@
   .badge-expired {
     @apply bg-red-100 text-red-700 border-red-200;
   }
+  .badge-locked-valid {
+    @apply bg-purple-100 text-purple-700 border-purple-200;
+  }
+  .badge-expired-not-locked {
+    @apply bg-pink-100 text-pink-700 border-pink-200;
+  }
   .badge-critical {
     @apply bg-red-100 text-red-700 border-red-200;
   }

@@ -13,10 +13,11 @@ interface DataTableProps<T> {
   data: T[];
   columns: Column<T>[];
   searchKeys?: (keyof T)[];
+  onRowClick?: (row: T) => void;
 }
 
 export default function DataTable<T extends object>({
-  data, columns, searchKeys
+  data, columns, searchKeys, onRowClick
 }: DataTableProps<T>) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<keyof T | null>(null);
@@ -88,7 +89,7 @@ export default function DataTable<T extends object>({
             </thead>
             <tbody>
               {filtered.map((row, i) => (
-                <tr key={i} className="border-t hover:bg-muted/30 transition-colors">
+                <tr key={i} className={cn("border-t hover:bg-muted/30 transition-colors", onRowClick && "cursor-pointer")} onClick={() => onRowClick?.(row)}>
                   {columns.map(col => (
                     <td key={String(col.key)} className="px-4 py-2.5 text-foreground">
                       {col.render ? col.render((row as Record<string, unknown>)[col.key as string] as T[keyof T], row) : String((row as Record<string, unknown>)[col.key as string] ?? '')}

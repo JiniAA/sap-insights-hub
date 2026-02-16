@@ -33,8 +33,9 @@ export interface SAPUser {
   userId: string;
   group: string;
   validTo: string;
-  status: 'Active' | 'Dormant' | 'Inactive';
+  status: 'Active' | 'Dormant' | 'Inactive' | 'Locked but Valid' | 'Expired not Locked';
   lastLogon: string;
+  lastLogonDate: Date | null;
 }
 
 export interface SAPRole {
@@ -126,11 +127,13 @@ export async function loadExcelData(url = '/data/Logs_for_Analysis_1.xlsx'): Pro
     let status: SAPUser['status'] = 'Active';
     if (lockReason.toLowerCase() === 'administrator') {
       status = 'Inactive';
+    } else if (lockReason && lockReason.length > 0 && lockReason !== '0' && (!validToDate || validToDate >= today)) {
+      status = 'Locked but Valid';
+    } else if (validToDate && validToDate < today && (!lockReason || lockReason === '0' || lockReason === '')) {
+      status = 'Expired not Locked';
     } else if (lastLogonDate && daysBetween(today, lastLogonDate) > 90) {
       status = 'Dormant';
     } else if (validToDate && validToDate < today) {
-      status = 'Inactive';
-    } else if (lockReason && lockReason.length > 0 && lockReason !== '0') {
       status = 'Inactive';
     }
 
@@ -144,6 +147,7 @@ export async function loadExcelData(url = '/data/Logs_for_Analysis_1.xlsx'): Pro
       validTo: fmt(validToDate),
       status,
       lastLogon: fmt(lastLogonDate),
+      lastLogonDate,
     };
   });
 
@@ -267,5 +271,5 @@ export async function loadExcelData(url = '/data/Logs_for_Analysis_1.xlsx'): Pro
 
 // ── Chart color constants ──
 export const CHART_COLORS = ['#1a3a5c', '#e8772e', '#2d8a56', '#d94040', '#7c3aed', '#0ea5e9', '#f59e0b', '#6366f1'];
-export const STATUS_COLORS: Record<string, string> = { Active: '#2d8a56', Dormant: '#f59e0b', Inactive: '#d94040' };
+export const STATUS_COLORS: Record<string, string> = { Active: '#2d8a56', Dormant: '#f59e0b', Inactive: '#d94040', 'Locked but Valid': '#7c3aed', 'Expired not Locked': '#ec4899' };
 export const CRITICALITY_COLORS: Record<string, string> = { Critical: '#d94040', High: '#e8772e', Medium: '#f59e0b', Low: '#0ea5e9' };

@@ -1,10 +1,15 @@
-import { useMemo } from "react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, PieChart, Pie, Legend } from "recharts";
+import { useState, useMemo } from "react";
+import { AlertTriangle } from "lucide-react";
+import { cn } from "@/lib/utils";
 import ChartCard from "@/components/ChartCard";
 import DataTable from "@/components/DataTable";
 import Spinner from "@/components/Spinner";
+import DateRangeFilter from "@/components/DateRangeFilter";
+import RoleDetailDialog from "@/components/RoleDetailDialog";
+import UnusedRolesDialog from "@/components/UnusedRolesDialog";
+import { Button } from "@/components/ui/button";
 import { useExcelData } from "@/hooks/useExcelData";
-import { computeUtilization, CHART_COLORS, type SAPRole } from "@/data/excelData";
+import { computeUtilization, type SAPRole } from "@/data/excelData";
 
 const tagBadge = (tag: string) => {
   const cls = tag === 'Critical Access' ? 'badge-critical' : tag === 'Optimization Candidate' ? 'badge-dormant' : 'badge-low';
@@ -13,40 +18,60 @@ const tagBadge = (tag: string) => {
 
 export default function RolesPage() {
   const { data, loading, error } = useExcelData();
-  const roles = data?.roles || [];
+  const allRoles = useMemo(() => (data?.roles || []).filter(r => r.roleName !== 'Z:COPY_SAP_ALL'), [data]);
 
-  // Charts always use full dataset
-  const donutData = useMemo(() =>
-    roles.map(r => ({
-      name: r.roleName.length > 20 ? r.roleName.slice(0, 20) + '…' : r.roleName,
-      utilization: computeUtilization(r),
-    }))
-    .sort((a, b) => b.utilization - a.utilization)
-    .slice(0, 15),
-    [roles]
-  );
+  const [topN, setTopN] = useState<number | null>(null);
+  const [showUnused, setShowUnused] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<SAPRole | null>(null);
 
-  const unusedData = useMemo(() =>
-    roles.map(r => ({
-      name: r.roleName,
-      unused: r.tCodes > 0 ? Math.round((r.unused / r.tCodes) * 100) : 0,
-      unusedCount: r.unused,
-    })).sort((a, b) => b.unused - a.unused),
-    [roles]
-  );
+  // Compute total executions per role for sorting
+  const roleExecMap = useMemo(() => {
+    if (!data) return {};
+    const map: Record<string, number> = {};
+    allRoles.forEach(r => {
+      const tcodesInRole = data.raw.roleTCodes
+        .filter(rt => String(rt.Role || '').trim() === r.roleName)
+        .map(rt => String(rt['Authorization value'] || rt['Authorization Value'] || '').trim());
+      const totalExec = tcodesInRole.reduce((sum, tc) => {
+        const found = data.tCodes.find(t => t.tCode === tc);
+        return sum + (found?.executions || 0);
+      }, 0);
+      map[r.roleName] = totalExec;
+    });
+    return map;
+  }, [data, allRoles]);
 
-  const tableData = useMemo(() =>
-    roles.map(r => ({ ...r, utilPct: `${computeUtilization(r)}%` })),
-    [roles]
-  );
+  const sortedRoles = useMemo(() => {
+    let result = [...allRoles].sort((a, b) => (roleExecMap[b.roleName] || 0) - (roleExecMap[a.roleName] || 0));
+    if (topN) result = result.slice(0, topN);
+    return result;
+  }, [allRoles, topN, roleExecMap]);
+
+  const unusedRoles = useMemo(() => allRoles.filter(r => computeUtilization(r) === 0), [allRoles]);
 
   type RoleWithUtil = SAPRole & { utilPct: string };
-  const extendedColumns: { key: keyof RoleWithUtil; label: string; render?: (v: unknown) => React.ReactNode }[] = [
+  const tableData = useMemo(() =>
+    sortedRoles.map(r => ({ ...r, utilPct: `${computeUtilization(r)}%` })),
+    [sortedRoles]
+  );
+
+  const extendedColumns: { key: keyof RoleWithUtil; label: string; render?: (v: unknown, row: unknown) => React.ReactNode }[] = [
     { key: 'roleName', label: 'Role Name' },
     { key: 'usersAssigned', label: 'Users' },
     { key: 'tCodes', label: 'TCodes', render: (v: unknown) => (v as number).toLocaleString() },
     { key: 'utilPct', label: 'Util %' },
-    { key: 'unused', label: 'Unused', render: (v: unknown) => (v as number).toLocaleString() },
+    {
+      key: 'unused', label: 'Unused', render: (v: unknown, row: unknown) => {
+        const num = v as number;
+        const r = row as RoleWithUtil;
+        const pct = r.tCodes > 0 ? Math.round((num / r.tCodes) * 100) : 0;
+        return (
+          <span title={`${pct}% of TCodes are unused`} className="cursor-help underline decoration-dotted decoration-muted-foreground">
+            {num.toLocaleString()}
+          </span>
+        );
+      }
+    },
     { key: 'tags', label: 'Tags', render: (v: unknown) => tagBadge(v as string) },
   ];
 
@@ -57,67 +82,56 @@ export default function RolesPage() {
     <>
       <div>
         <h1 className="page-header">Role Analytics</h1>
-        <p className="page-subheader">{roles.length} roles configured</p>
+        <p className="page-subheader">{allRoles.length} roles configured (excl. Z:COPY_SAP_ALL)</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ChartCard title="Utilization Donut" subtitle="Top 15 roles by utilization %">
-          <ResponsiveContainer width="100%" height={320}>
-            <PieChart>
-              <Pie
-                data={donutData}
-                cx="50%"
-                cy="50%"
-                innerRadius={60}
-                outerRadius={110}
-                paddingAngle={2}
-                dataKey="utilization"
-                label={({ name, utilization }) => `${name} ${utilization}%`}
-              >
-                {donutData.map((_, i) => (
-                  <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(value: number) => `${value}%`} />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
-        </ChartCard>
+      {/* Filters */}
+      <div className="chart-card flex flex-wrap items-center gap-4">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Show:</span>
+          {[null, 10, 20, 50].map(n => (
+            <button
+              key={n ?? 'all'}
+              onClick={() => setTopN(n)}
+              className={cn(
+                "px-2 py-1 text-xs rounded border transition-colors",
+                topN === n
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-card text-foreground border-border hover:bg-muted"
+              )}
+            >
+              {n ? `Top ${n}` : 'All'}
+            </button>
+          ))}
+        </div>
 
-        <ChartCard title="Unused Ratio" subtitle="% unused TCodes per role (scrollable)">
-          <div className="overflow-y-auto" style={{ maxHeight: 320 }}>
-            <div style={{ minHeight: Math.max(unusedData.length * 28, 300) }}>
-              <ResponsiveContainer width="100%" height={Math.max(unusedData.length * 28, 300)}>
-                <BarChart data={unusedData} layout="vertical" margin={{ left: 10 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
-                  <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} />
-                  <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 9 }} interval={0} />
-                  <Tooltip content={({ payload }) => {
-                    if (!payload?.length) return null;
-                    const d = payload[0].payload;
-                    return (
-                      <div className="bg-card border rounded-md p-2 text-xs shadow-lg">
-                        <p className="font-semibold text-foreground">{d.name}</p>
-                        <p className="text-muted-foreground">Unused: {d.unused}% ({d.unusedCount} TCodes)</p>
-                      </div>
-                    );
-                  }} />
-                  <Bar dataKey="unused" radius={[0, 4, 4, 0]}>
-                    {unusedData.map((entry, i) => (
-                      <Cell key={i} fill={entry.unused > 50 ? '#d94040' : entry.unused > 30 ? '#f59e0b' : '#2d8a56'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </ChartCard>
+        <DateRangeFilter
+          onChange={() => {}}
+          presets={['all', 'this-month', 'last-3-months', 'this-year', 'custom']}
+          label="Date"
+        />
+
+        <Button variant="outline" size="sm" className="text-xs" onClick={() => setShowUnused(true)}>
+          <AlertTriangle className="h-3 w-3 mr-1" /> Unused Roles ({unusedRoles.length})
+        </Button>
       </div>
 
+      {/* Table */}
       <div className="chart-card">
         <h3 className="text-sm font-semibold text-foreground mb-4">Role Details</h3>
-        <DataTable data={tableData} columns={extendedColumns as any} searchKeys={['roleName', 'tags'] as any} />
+        <DataTable
+          data={tableData}
+          columns={extendedColumns as any}
+          searchKeys={['roleName', 'tags'] as any}
+          onRowClick={(row) => setSelectedRole(row as unknown as SAPRole)}
+        />
       </div>
+
+      {/* Dialogs */}
+      {showUnused && <UnusedRolesDialog roles={unusedRoles} onClose={() => setShowUnused(false)} />}
+      {selectedRole && data && (
+        <RoleDetailDialog role={selectedRole} data={data} onClose={() => setSelectedRole(null)} />
+      )}
     </>
   );
 }
