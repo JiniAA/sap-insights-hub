@@ -1,10 +1,12 @@
-import { useMemo } from "react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
+import { useState, useMemo } from "react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, Legend, LabelList } from "recharts";
+import { cn } from "@/lib/utils";
 import ChartCard from "@/components/ChartCard";
 import DataTable from "@/components/DataTable";
 import Spinner from "@/components/Spinner";
+import DateRangeFilter from "@/components/DateRangeFilter";
 import { useExcelData } from "@/hooks/useExcelData";
-import { CHART_COLORS, type SAPTCode } from "@/data/excelData";
+import { CHART_COLORS } from "@/data/excelData";
 
 const columns = [
   { key: 'tCode' as const, label: 'TCode' },
@@ -19,50 +21,42 @@ export default function TCodesPage() {
   const tCodes = data?.tCodes || [];
   const users = data?.users || [];
 
-  // Charts always use full dataset
-  const execData = useMemo(() =>
-    [...tCodes].sort((a, b) => b.executions - a.executions),
-    [tCodes]
-  );
+  const [topN, setTopN] = useState<number>(10);
+
+  const totalExec = useMemo(() => tCodes.reduce((s, t) => s + t.executions, 0), [tCodes]);
+
+  // Charts always use full dataset, with topN slice
+  const execData = useMemo(() => {
+    const sorted = [...tCodes].sort((a, b) => b.executions - a.executions);
+    return sorted.slice(0, topN).map(t => ({
+      ...t,
+      pct: totalExec > 0 ? `${((t.executions / totalExec) * 100).toFixed(1)}%` : '0%',
+    }));
+  }, [tCodes, topN, totalExec]);
 
   const heatmapData = useMemo(() => {
     if (!data) return [];
     const groups = [...new Set(users.map(u => u.group).filter(Boolean))];
-    
     const tcodeGroupExecs: Record<string, Record<string, number>> = {};
-    groups.forEach(g => {
-      tcodeGroupExecs[g] = { High: 0, Medium: 0, Low: 0, None: 0 };
-    });
+    groups.forEach(g => { tcodeGroupExecs[g] = { High: 0, Medium: 0, Low: 0, None: 0 }; });
 
     tCodes.forEach(tc => {
       const bucket = tc.executions > 100 ? 'High' : tc.executions > 10 ? 'Medium' : tc.executions > 0 ? 'Low' : 'None';
-      
       const tcodeRoles = data.raw.roleTCodes
         .filter(rt => String(rt['Authorization value'] || rt['Authorization Value'] || '').trim() === tc.tCode)
         .map(rt => String(rt.Role || '').trim());
-      
       const tcodeUsers = data.raw.userRoles
         .filter(ur => tcodeRoles.includes(String(ur.Role || '').trim()))
         .map(ur => String(ur['User Name'] || ur['User name'] || '').trim());
-      
-      const relatedGroups = users
-        .filter(u => tcodeUsers.includes(u.userId))
-        .map(u => u.group);
-      
-      const uniqueGroups = [...new Set(relatedGroups)];
-      if (uniqueGroups.length === 0 && groups.length > 0) {
+      const relatedGroups = [...new Set(users.filter(u => tcodeUsers.includes(u.userId)).map(u => u.group))];
+      if (relatedGroups.length === 0 && groups.length > 0) {
         if (tcodeGroupExecs[groups[0]]) tcodeGroupExecs[groups[0]][bucket]++;
       } else {
-        uniqueGroups.forEach(g => {
-          if (tcodeGroupExecs[g]) tcodeGroupExecs[g][bucket]++;
-        });
+        relatedGroups.forEach(g => { if (tcodeGroupExecs[g]) tcodeGroupExecs[g][bucket]++; });
       }
     });
 
-    return groups.map(g => ({
-      group: g,
-      ...tcodeGroupExecs[g],
-    }));
+    return groups.map(g => ({ group: g, ...tcodeGroupExecs[g] }));
   }, [data, tCodes, users]);
 
   if (loading) return <Spinner text="Loading transaction code data..." />;
@@ -76,11 +70,27 @@ export default function TCodesPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ChartCard title="Execution Details" subtitle="Executions per TCode (scrollable)">
+        <ChartCard title="Execution Details" subtitle="Top TCodes by execution count">
+          <div className="flex gap-1 mb-3">
+            {[10, 20, 50].map(n => (
+              <button
+                key={n}
+                onClick={() => setTopN(n)}
+                className={cn(
+                  "px-2 py-1 text-xs rounded border transition-colors",
+                  topN === n
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card text-foreground border-border hover:bg-muted"
+                )}
+              >
+                Top {n}
+              </button>
+            ))}
+          </div>
           <div className="overflow-y-auto" style={{ maxHeight: 350 }}>
-            <div style={{ minHeight: Math.max(execData.length * 24, 300) }}>
-              <ResponsiveContainer width="100%" height={Math.max(execData.length * 24, 300)}>
-                <BarChart data={execData} layout="vertical" margin={{ left: 10 }}>
+            <div style={{ minHeight: Math.max(execData.length * 28, 300) }}>
+              <ResponsiveContainer width="100%" height={Math.max(execData.length * 28, 300)}>
+                <BarChart data={execData} layout="vertical" margin={{ left: 10, right: 50 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
                   <XAxis type="number" tick={{ fontSize: 11 }} />
                   <YAxis type="category" dataKey="tCode" width={100} tick={{ fontSize: 9 }} interval={0} />
@@ -89,6 +99,7 @@ export default function TCodesPage() {
                     {execData.map((_, i) => (
                       <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                     ))}
+                    <LabelList dataKey="pct" position="right" style={{ fontSize: 9, fill: 'hsl(220,10%,46%)' }} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -96,24 +107,32 @@ export default function TCodesPage() {
           </div>
         </ChartCard>
 
-        <ChartCard title="Group vs Execution Criticality" subtitle="Stacked bar: TCode execution volume by team">
+        <ChartCard title="Group vs Execution Criticality" subtitle="TCode execution volume by team">
           <ResponsiveContainer width="100%" height={320}>
             <BarChart data={heatmapData}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
               <XAxis dataKey="group" tick={{ fontSize: 10 }} height={60} />
               <YAxis tick={{ fontSize: 11 }} />
               <Tooltip />
-              <Bar dataKey="High" stackId="a" fill="#d94040" />
-              <Bar dataKey="Medium" stackId="a" fill="#f59e0b" />
-              <Bar dataKey="Low" stackId="a" fill="#0ea5e9" />
-              <Bar dataKey="None" stackId="a" fill="#94a3b8" radius={[4, 4, 0, 0]} />
+              <Legend />
+              <Bar dataKey="High" stackId="a" fill="#d94040" name="High (>100 executions)" />
+              <Bar dataKey="Medium" stackId="a" fill="#f59e0b" name="Medium (11-100)" />
+              <Bar dataKey="Low" stackId="a" fill="#0ea5e9" name="Low (1-10)" />
+              <Bar dataKey="None" stackId="a" fill="#94a3b8" radius={[4, 4, 0, 0]} name="None (0 executions)" />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
       </div>
 
       <div className="chart-card">
-        <h3 className="text-sm font-semibold text-foreground mb-4">TCode Details</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-foreground">TCode Details</h3>
+          <DateRangeFilter
+            onChange={() => {}}
+            presets={['all', 'this-month', 'last-month', 'custom']}
+            label="Date"
+          />
+        </div>
         <DataTable data={tCodes} columns={columns} searchKeys={['tCode', 'description']} />
       </div>
     </>
