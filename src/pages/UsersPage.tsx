@@ -132,7 +132,11 @@ export default function UsersPage() {
         <h3 className="text-sm font-semibold text-foreground mb-4">
           User Details {hasFilters && <span className="text-muted-foreground font-normal">({filteredUsers.length} of {users.length})</span>}
         </h3>
-        <DataTable data={filteredUsers} columns={columns} searchKeys={['userId', 'group', 'status']} />
+        {filteredUsers.length === 0 ? (
+          <div className="flex items-center justify-center h-[200px] text-sm text-muted-foreground">No data for this filter criteria</div>
+        ) : (
+          <DataTable data={filteredUsers} columns={columns} searchKeys={['userId', 'group', 'status']} />
+        )}
       </div>
     </>
   );

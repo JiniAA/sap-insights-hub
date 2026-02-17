@@ -187,7 +187,7 @@ export default function OverviewPage() {
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={statusData}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
-              <XAxis dataKey="name" tick={{ fontSize: 9 }} />
+              <XAxis dataKey="name" tick={{ fontSize: 9 }} interval={0} angle={-15} textAnchor="end" height={50} />
               <YAxis tick={{ fontSize: 11 }} />
               <Tooltip />
               <Bar dataKey="value" radius={[4, 4, 0, 0]}>
@@ -218,17 +218,21 @@ export default function OverviewPage() {
               label="Range"
             />
           </div>
-          <ResponsiveContainer width="100%" height={250}>
-            <LineChart data={userTrend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
-              <XAxis dataKey="period" tick={{ fontSize: 9 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Legend />
-              <Line type="monotone" dataKey="active" name="Active" stroke="#2d8a56" strokeWidth={2} dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="inactive" name="Inactive" stroke="#d94040" strokeWidth={2} dot={{ r: 3 }} />
-            </LineChart>
-          </ResponsiveContainer>
+          {userTrend.length === 0 ? (
+            <div className="flex items-center justify-center h-[250px] text-sm text-muted-foreground">No data for this filter criteria</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart data={userTrend}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
+                <XAxis dataKey="period" tick={{ fontSize: 9 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Legend />
+                <Line type="monotone" dataKey="active" name="Active" stroke="#2d8a56" strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="inactive" name="Inactive" stroke="#d94040" strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
         </ChartCard>
       </div>
 
@@ -243,17 +247,21 @@ export default function OverviewPage() {
         <div className="mb-3">
           <DateRangeFilter onChange={(s, e) => setRoleDateRange({ start: s, end: e })} />
         </div>
-        <ResponsiveContainer width="100%" height={280}>
-          <LineChart data={roleTimeSeries}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
-            <XAxis dataKey="period" tick={{ fontSize: 9 }} />
-            <YAxis tick={{ fontSize: 11 }} />
-            <Tooltip />
-            <Legend />
-            <Line type="monotone" dataKey="active" name="Active Roles" stroke="#2d8a56" strokeWidth={2} dot={{ r: 3 }} />
-            <Line type="monotone" dataKey="inactive" name="Inactive Roles" stroke="#d94040" strokeWidth={2} dot={{ r: 3 }} />
-          </LineChart>
-        </ResponsiveContainer>
+        {roleTimeSeries.length === 0 ? (
+          <div className="flex items-center justify-center h-[280px] text-sm text-muted-foreground">No data for this filter criteria</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={roleTimeSeries}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
+              <XAxis dataKey="period" tick={{ fontSize: 9 }} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Legend />
+              <Line type="monotone" dataKey="active" name="Active Roles" stroke="#2d8a56" strokeWidth={2} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="inactive" name="Inactive Roles" stroke="#d94040" strokeWidth={2} dot={{ r: 3 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </ChartCard>
 
       {/* TCode & Criticality */}
@@ -266,19 +274,23 @@ export default function OverviewPage() {
               label="Filter"
             />
           </div>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={uniqueTCodesByTeam}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
-              <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Bar dataKey="uniqueTCodes" name="Unique TCodes" fill={CHART_COLORS[1]} radius={[4, 4, 0, 0]}>
-                {uniqueTCodesByTeam.map((_, i) => (
-                  <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          {uniqueTCodesByTeam.length === 0 ? (
+            <div className="flex items-center justify-center h-[250px] text-sm text-muted-foreground">No data for this filter criteria</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={uniqueTCodesByTeam}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,89%)" />
+                <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Bar dataKey="uniqueTCodes" name="Unique TCodes" fill={CHART_COLORS[1]} radius={[4, 4, 0, 0]}>
+                  {uniqueTCodesByTeam.map((_, i) => (
+                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </ChartCard>
 
         <ChartCard title="Role Tags Breakdown" subtitle="Distribution of role classifications">
