@@ -4,7 +4,7 @@ import {
   ResponsiveContainer, CartesianGrid, Legend, LineChart, Line,
 } from "recharts";
 import { Users, Shield, Terminal, AlertTriangle, TrendingUp, TrendingDown, Activity } from "lucide-react";
-import { format, subMonths, eachWeekOfInterval, eachMonthOfInterval, addWeeks, addMonths, isAfter, isBefore } from "date-fns";
+import { format, subMonths, subWeeks, eachWeekOfInterval, eachMonthOfInterval, addWeeks, addMonths, isAfter, isBefore, startOfMonth, startOfYear, startOfWeek } from "date-fns";
 import StatCard from "@/components/StatCard";
 import ChartCard from "@/components/ChartCard";
 import Spinner from "@/components/Spinner";
@@ -15,6 +15,7 @@ import { computeUtilization, STATUS_COLORS, CHART_COLORS } from "@/data/excelDat
 export default function OverviewPage() {
   const { data, loading, error } = useExcelData();
   const [userTrendMode, setUserTrendMode] = useState<'weekly' | 'monthly'>('weekly');
+  const [userTrendRange, setUserTrendRange] = useState<{ start: Date | null; end: Date | null }>({ start: null, end: null });
   const [roleDateRange, setRoleDateRange] = useState<{ start: Date | null; end: Date | null }>({ start: null, end: null });
   const [tcodeDateRange, setTcodeDateRange] = useState<{ start: Date | null; end: Date | null }>({ start: null, end: null });
 
@@ -22,34 +23,37 @@ export default function OverviewPage() {
   const roles = data?.roles || [];
   const tCodes = data?.tCodes || [];
 
-  // ── Users by Status ──
+  // ── Users by Status (ensure all statuses present) ──
   const statusData = useMemo(() => {
+    const allStatuses = ['Active', 'Dormant', 'Inactive', 'Locked but Valid', 'Expired not Locked'];
     const counts: Record<string, number> = {};
+    allStatuses.forEach(s => { counts[s] = 0; });
     users.forEach(u => { counts[u.status] = (counts[u.status] || 0) + 1; });
-    return Object.entries(counts).map(([name, value]) => ({ name, value }));
+    return allStatuses.map(name => ({ name, value: counts[name] }));
   }, [users]);
 
-  // ── User Activity Trend ──
+  // ── User Activity Trend (with date range support) ──
   const userTrend = useMemo(() => {
     if (!users.length) return [];
     const now = new Date();
-    const start = subMonths(now, 6);
+    const start = userTrendRange.start || subMonths(now, 6);
+    const end = userTrendRange.end || now;
     if (userTrendMode === 'weekly') {
-      const weeks = eachWeekOfInterval({ start, end: now });
+      const weeks = eachWeekOfInterval({ start, end });
       return weeks.map(ws => {
         const we = addWeeks(ws, 1);
         const active = users.filter(u => u.lastLogonDate && isAfter(u.lastLogonDate, ws) && isBefore(u.lastLogonDate, we)).length;
         return { period: format(ws, 'MMM dd'), active, inactive: users.length - active };
       });
     } else {
-      const months = eachMonthOfInterval({ start, end: now });
+      const months = eachMonthOfInterval({ start, end });
       return months.map(ms => {
         const me = addMonths(ms, 1);
         const active = users.filter(u => u.lastLogonDate && isAfter(u.lastLogonDate, ms) && isBefore(u.lastLogonDate, me)).length;
         return { period: format(ms, 'MMM yyyy'), active, inactive: users.length - active };
       });
     }
-  }, [users, userTrendMode]);
+  }, [users, userTrendMode, userTrendRange]);
 
   // ── Role Stats ──
   const roleStats = useMemo(() => {
@@ -93,7 +97,7 @@ export default function OverviewPage() {
     });
   }, [data, roles, users, roleDateRange]);
 
-  // ── Unique TCodes by Team ──
+  // ── Unique TCodes by Team (filtered by date) ──
   const uniqueTCodesByTeam = useMemo(() => {
     if (!data) return [];
     const userGroupMap: Record<string, string> = {};
@@ -104,9 +108,32 @@ export default function OverviewPage() {
       const user = String(ur['User Name'] || ur['User name'] || '').trim();
       if (role) { if (!roleUsersMap[role]) roleUsersMap[role] = []; roleUsersMap[role].push(user); }
     });
+
+    // Filter transaction logs by date range if set
+    const filteredLogs = data.raw.transactionLogs.filter(log => {
+      if (!tcodeDateRange.start && !tcodeDateRange.end) return true;
+      // Try to parse date from log if available
+      const dateVal = log['Date'] || log['date'] || log['Stat. Date'] || log['Start Date'];
+      if (!dateVal) return true;
+      const d = typeof dateVal === 'number'
+        ? new Date(1899, 11, 30 + dateVal)
+        : new Date(String(dateVal));
+      if (isNaN(d.getTime())) return true;
+      if (tcodeDateRange.start && d < tcodeDateRange.start) return false;
+      if (tcodeDateRange.end && d > tcodeDateRange.end) return false;
+      return true;
+    });
+
+    // Build set of executed tcodes from filtered logs
+    const filteredTCodeSet = new Set<string>();
+    filteredLogs.forEach(log => {
+      const val = String(log['Variable Data'] || log['variable data'] || log['Variable data'] || '').trim();
+      if (val) filteredTCodeSet.add(val);
+    });
+
     const teamTCodes: Record<string, Set<string>> = {};
     tCodes.forEach(tc => {
-      if (tc.executions === 0) return;
+      if (!filteredTCodeSet.has(tc.tCode)) return;
       const rolesForTC = roles.filter(r =>
         data.raw.roleTCodes.some(rt =>
           String(rt.Role || '').trim() === r.roleName &&
@@ -124,7 +151,7 @@ export default function OverviewPage() {
     return Object.entries(teamTCodes)
       .map(([name, tcodes]) => ({ name, uniqueTCodes: tcodes.size }))
       .sort((a, b) => b.uniqueTCodes - a.uniqueTCodes);
-  }, [data, users, roles, tCodes]);
+  }, [data, users, roles, tCodes, tcodeDateRange]);
 
   // ── Criticality ──
   const critData = useMemo(() => {
@@ -172,17 +199,24 @@ export default function OverviewPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="User Activity Trend" subtitle="Active users over time (last 6 months)">
-          <div className="flex gap-1 mb-2">
-            {(['weekly', 'monthly'] as const).map(mode => (
-              <button
-                key={mode}
-                onClick={() => setUserTrendMode(mode)}
-                className={`px-2 py-1 text-xs rounded border transition-colors ${userTrendMode === mode ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-foreground border-border hover:bg-muted'}`}
-              >
-                {mode === 'weekly' ? 'Weekly' : 'Monthly'}
-              </button>
-            ))}
+        <ChartCard title="User Activity Trend" subtitle="Active users over time">
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <div className="flex gap-1">
+              {(['weekly', 'monthly'] as const).map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => setUserTrendMode(mode)}
+                  className={`px-2 py-1 text-xs rounded border transition-colors ${userTrendMode === mode ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-foreground border-border hover:bg-muted'}`}
+                >
+                  {mode === 'weekly' ? 'Weekly' : 'Monthly'}
+                </button>
+              ))}
+            </div>
+            <DateRangeFilter
+              onChange={(s, e) => setUserTrendRange({ start: s, end: e })}
+              presets={['all', 'this-month', 'this-year', 'custom']}
+              label="Range"
+            />
           </div>
           <ResponsiveContainer width="100%" height={250}>
             <LineChart data={userTrend}>
@@ -254,7 +288,6 @@ export default function OverviewPage() {
                 {critData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
               </Pie>
               <Tooltip />
-              <Legend />
             </PieChart>
           </ResponsiveContainer>
         </ChartCard>

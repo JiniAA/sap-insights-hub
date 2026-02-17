@@ -23,29 +23,14 @@ export default function RolesPage() {
   const [topN, setTopN] = useState<number | null>(null);
   const [showUnused, setShowUnused] = useState(false);
   const [selectedRole, setSelectedRole] = useState<SAPRole | null>(null);
+  const [dateRange, setDateRange] = useState<{ start: Date | null; end: Date | null }>({ start: null, end: null });
 
-  // Compute total executions per role for sorting
-  const roleExecMap = useMemo(() => {
-    if (!data) return {};
-    const map: Record<string, number> = {};
-    allRoles.forEach(r => {
-      const tcodesInRole = data.raw.roleTCodes
-        .filter(rt => String(rt.Role || '').trim() === r.roleName)
-        .map(rt => String(rt['Authorization value'] || rt['Authorization Value'] || '').trim());
-      const totalExec = tcodesInRole.reduce((sum, tc) => {
-        const found = data.tCodes.find(t => t.tCode === tc);
-        return sum + (found?.executions || 0);
-      }, 0);
-      map[r.roleName] = totalExec;
-    });
-    return map;
-  }, [data, allRoles]);
-
+  // Sort by utilization % (highest to lowest)
   const sortedRoles = useMemo(() => {
-    let result = [...allRoles].sort((a, b) => (roleExecMap[b.roleName] || 0) - (roleExecMap[a.roleName] || 0));
+    let result = [...allRoles].sort((a, b) => computeUtilization(b) - computeUtilization(a));
     if (topN) result = result.slice(0, topN);
     return result;
-  }, [allRoles, topN, roleExecMap]);
+  }, [allRoles, topN]);
 
   const unusedRoles = useMemo(() => allRoles.filter(r => computeUtilization(r) === 0), [allRoles]);
 
@@ -106,7 +91,7 @@ export default function RolesPage() {
         </div>
 
         <DateRangeFilter
-          onChange={() => {}}
+          onChange={(s, e) => setDateRange({ start: s, end: e })}
           presets={['all', 'this-month', 'last-3-months', 'this-year', 'custom']}
           label="Date"
         />
