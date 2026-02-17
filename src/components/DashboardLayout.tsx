@@ -19,7 +19,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Sidebar */}
       <aside
         className={cn(
-          "flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-all duration-200",
+          "flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-all duration-200 sticky top-0 h-screen overflow-y-auto shrink-0",
           collapsed ? "w-16" : "w-60"
         )}
       >

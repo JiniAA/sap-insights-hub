@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 
-const STATUS_OPTIONS: SAPUser['status'][] = ['Active', 'Dormant', 'Locked but Valid', 'Expired not Locked', 'Inactive'];
+const STATUS_OPTIONS: SAPUser['status'][] = ['Active', 'Dormant', 'Inactive', 'Locked but Valid', 'Expired not Locked'];
 
 const statusBadge = (status: string) => {
   const cls =
@@ -82,9 +82,9 @@ export default function UsersPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <ChartCard title="Group Membership" subtitle="User distribution by group">
-          <ResponsiveContainer width="100%" height={250}>
+          <ResponsiveContainer width="100%" height={350}>
             <PieChart>
-              <Pie data={groupData} cx="50%" cy="50%" outerRadius={90} paddingAngle={3} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+              <Pie data={groupData} cx="50%" cy="50%" outerRadius={130} paddingAngle={3} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
                 {groupData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
               </Pie>
               <Tooltip />

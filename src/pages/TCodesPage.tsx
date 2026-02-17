@@ -6,7 +6,7 @@ import DataTable from "@/components/DataTable";
 import Spinner from "@/components/Spinner";
 import DateRangeFilter from "@/components/DateRangeFilter";
 import { useExcelData } from "@/hooks/useExcelData";
-import { CHART_COLORS } from "@/data/excelData";
+import { CHART_COLORS, type SAPTCode } from "@/data/excelData";
 
 const columns = [
   { key: 'tCode' as const, label: 'TCode' },
@@ -22,6 +22,7 @@ export default function TCodesPage() {
   const users = data?.users || [];
 
   const [topN, setTopN] = useState<number>(10);
+  const [tableDateRange, setTableDateRange] = useState<{ start: Date | null; end: Date | null }>({ start: null, end: null });
 
   const totalExec = useMemo(() => tCodes.reduce((s, t) => s + t.executions, 0), [tCodes]);
 
@@ -58,6 +59,35 @@ export default function TCodesPage() {
 
     return groups.map(g => ({ group: g, ...tcodeGroupExecs[g] }));
   }, [data, tCodes, users]);
+
+  // Filter table data by date range
+  const filteredTableData = useMemo(() => {
+    if (!tableDateRange.start && !tableDateRange.end) return tCodes;
+    if (!data) return tCodes;
+
+    // Build execution counts from filtered transaction logs
+    const filteredCounts: Record<string, number> = {};
+    data.raw.transactionLogs.forEach(log => {
+      const dateVal = log['Date'] || log['date'] || log['Stat. Date'] || log['Start Date'];
+      if (dateVal) {
+        const d = typeof dateVal === 'number'
+          ? new Date(1899, 11, 30 + dateVal)
+          : new Date(String(dateVal));
+        if (!isNaN(d.getTime())) {
+          if (tableDateRange.start && d < tableDateRange.start) return;
+          if (tableDateRange.end && d > tableDateRange.end) return;
+        }
+      }
+      const val = String(log['Variable Data'] || log['variable data'] || log['Variable data'] || '').trim();
+      if (val) filteredCounts[val] = (filteredCounts[val] || 0) + 1;
+    });
+
+    // Return tcodes with filtered execution counts
+    return tCodes.map(tc => ({
+      ...tc,
+      executions: filteredCounts[tc.tCode] || 0,
+    })).filter(tc => tc.executions > 0);
+  }, [tCodes, tableDateRange, data]);
 
   if (loading) return <Spinner text="Loading transaction code data..." />;
   if (error) return <div className="text-destructive p-4">Error: {error}</div>;
@@ -128,12 +158,12 @@ export default function TCodesPage() {
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-foreground">TCode Details</h3>
           <DateRangeFilter
-            onChange={() => {}}
+            onChange={(s, e) => setTableDateRange({ start: s, end: e })}
             presets={['all', 'this-month', 'last-month', 'custom']}
             label="Date"
           />
         </div>
-        <DataTable data={tCodes} columns={columns} searchKeys={['tCode', 'description']} />
+        <DataTable data={filteredTableData} columns={columns} searchKeys={['tCode', 'description']} />
       </div>
     </>
   );
