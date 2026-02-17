@@ -163,7 +163,11 @@ export default function TCodesPage() {
             label="Date"
           />
         </div>
-        <DataTable data={filteredTableData} columns={columns} searchKeys={['tCode', 'description']} />
+        {filteredTableData.length === 0 ? (
+          <div className="flex items-center justify-center h-[200px] text-sm text-muted-foreground">No data for this filter criteria</div>
+        ) : (
+          <DataTable data={filteredTableData} columns={columns} searchKeys={['tCode', 'description']} />
+        )}
       </div>
     </>
   );
